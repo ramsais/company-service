@@ -1,0 +1,83 @@
+### Company Service API Requests
+### Base URL — change to match your environment
+@baseUrl = http://localhost:8000
+
+### Auth tokens — replace with real Cognito JWT tokens
+@userToken = Bearer <USER_JWT_TOKEN>
+@adminToken = Bearer <ADMIN_JWT_TOKEN>
+
+### Company ID — set after creating a company
+@companyId = <COMPANY_ID>
+
+
+### ──────────────────────────────────────────
+### Health Check
+### ──────────────────────────────────────────
+
+GET {{baseUrl}}/health
+
+
+### ──────────────────────────────────────────
+### List all companies  (user or admin)
+### ──────────────────────────────────────────
+
+GET {{baseUrl}}/companies/
+Authorization: {{userToken}}
+
+
+### ──────────────────────────────────────────
+### Get a single company by ID  (user or admin)
+### ──────────────────────────────────────────
+
+GET {{baseUrl}}/companies/{{companyId}}
+Authorization: {{userToken}}
+
+
+### ──────────────────────────────────────────
+### Create a company  (user or admin)
+### ──────────────────────────────────────────
+
+POST {{baseUrl}}/companies/
+Authorization: {{userToken}}
+Content-Type: application/json
+
+{
+  "name": "Acme Corp",
+  "industry": "Technology",
+  "website": "https://acme.example.com",
+  "location": "San Francisco, CA",
+  "is_active": true
+}
+
+
+### ──────────────────────────────────────────
+### Update a company  (user or admin)
+### ──────────────────────────────────────────
+
+PUT {{baseUrl}}/companies/{{companyId}}
+Authorization: {{userToken}}
+Content-Type: application/json
+
+{
+  "name": "Acme Corp Updated",
+  "industry": "SaaS",
+  "website": "https://acme-updated.example.com",
+  "location": "New York, NY",
+  "is_active": true
+}
+
+
+### ──────────────────────────────────────────
+### Delete a company  (admin only)
+### ──────────────────────────────────────────
+
+DELETE {{baseUrl}}/companies/{{companyId}}
+Authorization: {{adminToken}}
+
+
+### ──────────────────────────────────────────
+### Delete a company as user — expects 403
+### ──────────────────────────────────────────
+
+DELETE {{baseUrl}}/companies/{{companyId}}
+Authorization: {{userToken}}

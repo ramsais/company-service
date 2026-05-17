@@ -1,0 +1,122 @@
+[
+  {
+    "id": "1",
+    "name": "Tech Corp",
+    "industry": "Technology",
+    "website": "techcorp.com",
+    "location": "San Francisco",
+    "is_active": true,
+    "created_at": "2024-01-01T00:00:00Z",
+    "updated_at": "2024-01-01T00:00:00Z"
+  },
+  {
+    "id": "2",
+    "name": "Health Inc",
+    "industry": "Healthcare",
+    "website": "healthinc.com",
+    "location": "New York",
+    "is_active": true,
+    "created_at": "2024-01-01T00:00:00Z",
+    "updated_at": "2024-01-01T00:00:00Z"
+  },
+  {
+    "name": "Acme Corp",
+    "industry": "Technology",
+    "website": "https://acme.com",
+    "location": "Austin",
+    "is_active": true,
+    "id": "a31b74a5-6efc-4da7-beba-9a209d2b85c0",
+    "created_at": "2026-05-17T07:57:30.729463",
+    "updated_at": "2026-05-17T07:57:30.729463"
+  },
+  {
+    "name": "Acme Corp",
+    "industry": "Technology",
+    "website": "https://acme.com",
+    "location": "Austin",
+    "is_active": true,
+    "id": "042f6683-0b73-4687-b90f-edecd80b3023",
+    "created_at": "2026-05-17T07:57:30.736164",
+    "updated_at": "2026-05-17T07:57:30.736164"
+  },
+  {
+    "name": "Alpha",
+    "industry": "Technology",
+    "website": "https://acme.com",
+    "location": "Austin",
+    "is_active": true,
+    "id": "8220c6ae-1f1f-4c82-b08b-ecbbd02098c8",
+    "created_at": "2026-05-17T07:57:30.804050",
+    "updated_at": "2026-05-17T07:57:30.804050"
+  },
+  {
+    "name": "Beta",
+    "industry": "Technology",
+    "website": "https://acme.com",
+    "location": "Austin",
+    "is_active": true,
+    "id": "f711bcba-b6eb-403a-aa89-ed0eda0db7a1",
+    "created_at": "2026-05-17T07:57:30.806001",
+    "updated_at": "2026-05-17T07:57:30.806001"
+  },
+  {
+    "name": "Acme Corp",
+    "industry": "Technology",
+    "website": "https://acme.com",
+    "location": "Austin",
+    "is_active": true,
+    "id": "3e685786-7b29-406f-989d-f201901961d2",
+    "created_at": "2026-05-17T07:57:30.810853",
+    "updated_at": "2026-05-17T07:57:30.810853"
+  },
+  {
+    "name": "Acme Corp",
+    "industry": "Technology",
+    "website": "https://acme.com",
+    "location": "Austin",
+    "is_active": true,
+    "id": "ac9e942d-c4c8-41fe-a2f2-6949e206550c",
+    "created_at": "2026-05-17T07:57:30.816626",
+    "updated_at": "2026-05-17T07:57:30.816626"
+  },
+  {
+    "name": "Acme Corp",
+    "industry": "Technology",
+    "website": "https://acme.com",
+    "location": "Austin",
+    "is_active": true,
+    "id": "ce8f4b86-29ef-4c5a-be0a-cefca37c91b0",
+    "created_at": "2026-05-17T07:57:30.825822",
+    "updated_at": "2026-05-17T07:57:30.825822"
+  },
+  {
+    "name": "Acme Updated",
+    "industry": "Finance",
+    "website": "https://acme.com",
+    "location": "Austin",
+    "is_active": true,
+    "id": "ac94bcd7-19b5-457e-aec6-3fa1f36db8d5",
+    "created_at": "2026-05-17T07:57:30.829139",
+    "updated_at": "2026-05-17T07:57:30.830217"
+  },
+  {
+    "name": "New Name",
+    "industry": "Retail",
+    "website": "https://acme.com",
+    "location": "Austin",
+    "is_active": true,
+    "id": "40f9aed4-08fb-4b2f-a6f1-59d18df554e9",
+    "created_at": "2026-05-17T07:57:30.832721",
+    "updated_at": "2026-05-17T07:57:30.833767"
+  },
+  {
+    "name": "Acme Corp",
+    "industry": "Technology",
+    "website": "https://acme.com",
+    "location": "Austin",
+    "is_active": true,
+    "id": "f07599f9-a281-4bbb-85e6-848c1e08aec4",
+    "created_at": "2026-05-17T07:57:30.848095",
+    "updated_at": "2026-05-17T07:57:30.848095"
+  }
+]
