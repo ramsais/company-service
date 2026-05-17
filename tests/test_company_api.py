@@ -39,8 +39,8 @@ def _make_jwt(groups: list[str]) -> str:
     return f"{header}.{payload}.{signature}"
 
 
-ADMIN_TOKEN = _make_jwt(["admin"])
-USER_TOKEN = _make_jwt(["user"])
+ADMIN_TOKEN = _make_jwt(["WRITE_USER"])
+USER_TOKEN = _make_jwt(["READ_USER"])
 
 ADMIN_HEADERS = {"Authorization": f"Bearer {ADMIN_TOKEN}"}
 USER_HEADERS = {"Authorization": f"Bearer {USER_TOKEN}"}
@@ -129,7 +129,10 @@ async def create_company(client: AsyncClient, payload: dict | None = None) -> di
 async def test_health_check(client):
     resp = await client.get("/health")
     assert resp.status_code == 200
-    assert resp.json() == {"status": "healthy"}
+    data = resp.json()
+    assert data["status"] == "healthy"
+    assert data["service"] == "company-service"
+    assert data["version"] == "1.0.0"
 
 
 # ---------------------------------------------------------------------------
@@ -275,11 +278,11 @@ async def test_update_company_not_found_returns_404(client):
 
 
 # ---------------------------------------------------------------------------
-# Delete company — admin only
+# Delete company — WRITE_USER only
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_delete_company_as_admin(client):
+async def test_delete_company_as_write_user(client):
     created = await create_company(client)
     resp = await client.delete(f"/companies/{created['id']}", headers=ADMIN_HEADERS)
     assert resp.status_code == 204
@@ -290,7 +293,7 @@ async def test_delete_company_as_admin(client):
 
 
 @pytest.mark.asyncio
-async def test_delete_company_as_user_returns_403(client):
+async def test_delete_company_as_read_user_returns_403(client):
     created = await create_company(client)
     resp = await client.delete(f"/companies/{created['id']}", headers=USER_HEADERS)
     assert resp.status_code == 403

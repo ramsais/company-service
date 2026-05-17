@@ -63,9 +63,9 @@ async def delete_company(
     service: CompanyService = Depends(get_company_service),
     role: str = Depends(get_current_user_role),
 ):
-    if role != "admin":
+    if role != "WRITE_USER":
         from fastapi import HTTPException
-        raise HTTPException(status_code=403, detail="Admin role required to delete a company")
+        raise HTTPException(status_code=403, detail="WRITE_USER role required to delete a company")
     deleted = await service.delete_company(company_id)
     if not deleted:
         raise ResourceNotFoundException("Company", company_id)

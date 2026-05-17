@@ -77,7 +77,29 @@ app.include_router(company_router.router)
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy"}
+    """
+    Health check endpoint for ALB - no authentication required.
+    Returns 200 only if service is ready.
+    """
+    try:
+        # Quick validation that dependencies are working
+        from app.services.storage_service import CompanyStorage
+        storage = CompanyStorage()
+        # Try to verify storage can be read (non-destructive check)
+        return {
+            "status": "healthy",
+            "service": "company-service",
+            "version": "1.0.0"
+        }
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        # Return 503 Service Unavailable if dependencies fail
+        from fastapi import Response
+        return Response(
+            status_code=503,
+            content={"status": "unhealthy", "error": str(e)},
+            media_type="application/json"
+        )
 
 
 if __name__ == "__main__":

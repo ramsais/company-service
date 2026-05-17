@@ -25,7 +25,7 @@ def get_current_user_role(authorization: Optional[str] = Header(default=None)) -
     API Gateway has already validated the Cognito token; we only decode the payload
     to read the 'cognito:groups' claim and determine the role.
 
-    Returns 'admin' or 'user'.
+    Returns 'WRITE_USER' or 'READ_USER'.
     """
     if not authorization:
         raise HTTPException(status_code=401, detail="Authorization header is missing")
@@ -37,17 +37,17 @@ def get_current_user_role(authorization: Optional[str] = Header(default=None)) -
     claims = _decode_jwt_payload(token)
 
     groups: list = claims.get("cognito:groups") or []
-    if "admin" in groups:
-        return "admin"
-    if "user" in groups:
-        return "user"
+    if "WRITE_USER" in groups:
+        return "WRITE_USER"
+    if "READ_USER" in groups:
+        return "READ_USER"
 
-    raise HTTPException(status_code=403, detail="User does not belong to a recognized role group (admin or user)")
+    raise HTTPException(status_code=403, detail="User does not belong to a recognized role group (WRITE_USER or READ_USER)")
 
 
-def require_admin(role: str = Header(default=None)) -> str:
-    """Dependency that enforces admin-only access."""
+def require_write_user(role: str = Header(default=None)) -> str:
+    """Dependency that enforces WRITE_USER-only access."""
     # This is used as a secondary check after get_current_user_role
-    if role != "admin":
-        raise HTTPException(status_code=403, detail="Admin role required for this operation")
+    if role != "WRITE_USER":
+        raise HTTPException(status_code=403, detail="WRITE_USER role required for this operation")
     return role
