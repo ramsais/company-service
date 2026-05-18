@@ -1,25 +1,19 @@
 """
 End-to-end pytest suite for Company Service.
 - Uses a temporary JSON storage file so tests never touch production data.
-- Mocks DealServiceClient to isolate the company service from the external Deal API.
 - Uses JWT tokens with Cognito group claims for role-based authorization tests.
+- Delete is a soft-delete: sets is_active=False, record remains in storage.
 """
 import json
 import base64
-import os
-import tempfile
 import pytest
 import pytest_asyncio
-from unittest.mock import AsyncMock, patch
 from httpx import AsyncClient, ASGITransport
 
 from main import app
 from app.routers.company_router import get_company_service
 from app.services.storage_service import CompanyStorage
-from app.services.deal_service import DealServiceClient
 from app.services.company_service import CompanyService
-from app.services.config import settings
-from app.schemas.company import Deal
 
 
 # ---------------------------------------------------------------------------
@@ -50,16 +44,6 @@ USER_HEADERS = {"Authorization": f"Bearer {USER_TOKEN}"}
 # Fixtures
 # ---------------------------------------------------------------------------
 
-@pytest.fixture(autouse=True)
-def mock_secrets_manager():
-    """Prevent any test from calling AWS Secrets Manager."""
-    with patch(
-        "app.services.config.get_deal_service_url",
-        return_value="http://deal-service.local",
-    ):
-        yield
-
-
 @pytest.fixture()
 def tmp_storage(tmp_path):
     """Provide a fresh temporary JSON storage file for each test."""
@@ -68,35 +52,22 @@ def tmp_storage(tmp_path):
     return str(storage_file)
 
 
-@pytest.fixture()
-def mock_deals():
-    """Sample deals returned by the mocked DealServiceClient."""
-    return [Deal(id="d1", title="Deal One", amount=1000.0, status="Open")]
-
-
 @pytest_asyncio.fixture()
-async def client(tmp_storage, mock_deals):
+async def client(tmp_storage):
     """
     AsyncClient wired to the FastAPI app.
-    - Overrides the FastAPI dependency to use a temp storage file.
-    - Patches DealServiceClient.get_deals_for_company to return mock_deals.
+    Overrides the FastAPI dependency to use a temp storage file.
     """
     def override_get_company_service():
         storage = CompanyStorage(file_path=tmp_storage)
-        deal_client = DealServiceClient()
-        return CompanyService(storage, deal_client)
+        return CompanyService(storage)
 
     app.dependency_overrides[get_company_service] = override_get_company_service
 
-    with patch(
-        "app.services.company_service.DealServiceClient.get_deals_for_company",
-        new_callable=AsyncMock,
-        return_value=mock_deals,
-    ):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as ac:
-            yield ac
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as ac:
+        yield ac
 
     app.dependency_overrides.clear()
 
@@ -152,8 +123,7 @@ async def test_create_company_returns_201(client):
     assert "id" in data
     assert "created_at" in data
     assert "updated_at" in data
-    # deals come from mock
-    assert isinstance(data["deals"], list)
+    assert "deals" not in data
 
 
 @pytest.mark.asyncio
@@ -192,16 +162,6 @@ async def test_list_companies_returns_all(client):
     assert "Beta" in names
 
 
-@pytest.mark.asyncio
-async def test_list_companies_includes_deals(client):
-    await create_company(client)
-    resp = await client.get("/companies/", headers=USER_HEADERS)
-    assert resp.status_code == 200
-    company = resp.json()[0]
-    assert len(company["deals"]) == 1
-    assert company["deals"][0]["title"] == "Deal One"
-
-
 # ---------------------------------------------------------------------------
 # Get single company
 # ---------------------------------------------------------------------------
@@ -222,14 +182,6 @@ async def test_get_company_not_found_returns_404(client):
     body = resp.json()
     assert body["error"] == "ResourceNotFoundException"
     assert "nonexistent-id" in body["message"]
-
-
-@pytest.mark.asyncio
-async def test_get_company_includes_deals(client):
-    created = await create_company(client)
-    resp = await client.get(f"/companies/{created['id']}", headers=USER_HEADERS)
-    assert resp.status_code == 200
-    assert len(resp.json()["deals"]) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -259,7 +211,6 @@ async def test_update_company_updates_updated_at(client):
         headers=USER_HEADERS,
     )
     assert resp.status_code == 200
-    # updated_at must be >= created_at
     from datetime import datetime
     created_at = datetime.fromisoformat(created["created_at"].replace("Z", "+00:00"))
     updated_at = datetime.fromisoformat(resp.json()["updated_at"].replace("Z", "+00:00"))
@@ -278,7 +229,7 @@ async def test_update_company_not_found_returns_404(client):
 
 
 # ---------------------------------------------------------------------------
-# Delete company — WRITE_USER only
+# Delete company — soft delete, WRITE_USER only
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
@@ -287,9 +238,16 @@ async def test_delete_company_as_write_user(client):
     resp = await client.delete(f"/companies/{created['id']}", headers=ADMIN_HEADERS)
     assert resp.status_code == 204
 
-    # Confirm it's gone
-    get_resp = await client.get(f"/companies/{created['id']}", headers=USER_HEADERS)
-    assert get_resp.status_code == 404
+
+@pytest.mark.asyncio
+async def test_delete_sets_is_active_false_in_storage(client, tmp_storage):
+    """Soft-delete must set is_active=False in storage, not remove the record."""
+    created = await create_company(client)
+    await client.delete(f"/companies/{created['id']}", headers=ADMIN_HEADERS)
+    raw = json.loads(open(tmp_storage).read())
+    record = next((c for c in raw if c["id"] == created["id"]), None)
+    assert record is not None, "Record must still exist after soft-delete"
+    assert record["is_active"] is False
 
 
 @pytest.mark.asyncio
@@ -306,14 +264,6 @@ async def test_delete_company_not_found_returns_404(client):
     assert resp.json()["error"] == "ResourceNotFoundException"
 
 
-@pytest.mark.asyncio
-async def test_delete_removes_from_storage(client, tmp_storage):
-    created = await create_company(client)
-    await client.delete(f"/companies/{created['id']}", headers=ADMIN_HEADERS)
-    raw = json.loads(open(tmp_storage).read())
-    assert all(c["id"] != created["id"] for c in raw)
-
-
 # ---------------------------------------------------------------------------
 # Authorization — missing / invalid token
 # ---------------------------------------------------------------------------
@@ -328,38 +278,6 @@ async def test_request_without_token_returns_401(client):
 async def test_request_with_invalid_token_returns_401(client):
     resp = await client.get("/companies/", headers={"Authorization": "Bearer not.a.jwt"})
     assert resp.status_code == 401
-
-
-# ---------------------------------------------------------------------------
-# Deal API fallback (graceful degradation)
-# ---------------------------------------------------------------------------
-
-@pytest.mark.asyncio
-async def test_deal_api_failure_returns_empty_deals(tmp_storage):
-    """When Deal API is unreachable, company responses must still succeed with deals=[]."""
-    def override_get_company_service():
-        storage = CompanyStorage(file_path=tmp_storage)
-        deal_client = DealServiceClient()
-        return CompanyService(storage, deal_client)
-
-    app.dependency_overrides[get_company_service] = override_get_company_service
-
-    with patch(
-        "app.services.company_service.DealServiceClient.get_deals_for_company",
-        new_callable=AsyncMock,
-        return_value=[],
-    ):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as ac:
-            created_resp = await ac.post("/companies/", json=COMPANY_PAYLOAD, headers=USER_HEADERS)
-            assert created_resp.status_code == 201
-
-            resp = await ac.get(f"/companies/{created_resp.json()['id']}", headers=USER_HEADERS)
-            assert resp.status_code == 200
-            assert resp.json()["deals"] == []
-
-    app.dependency_overrides.clear()
 
 
 # ---------------------------------------------------------------------------

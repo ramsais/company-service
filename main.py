@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 from app.exceptions import AppException, app_exception_handler
 from app.middleware import CorrelationIdMiddleware, CorrelationIdFilter
 from app.routers import company_router
+from app.services.config import settings
 
 # ---------------------------------------------------------------------------
 # Structured JSON logging
@@ -52,8 +53,8 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 app = FastAPI(
     title="Company Service",
-    description="A microservice for managing company data with local JSON storage and external Deal API enrichment.",
-    version="1.0.0",
+    description="A microservice for managing company data with local JSON storage.",
+    version=settings.SERVICE_VERSION,
 )
 
 # Correlation ID middleware must be added before any other middleware so the
@@ -75,30 +76,30 @@ async def global_exception_handler(request: Request, exc: Exception):
 app.include_router(company_router.router)
 
 
-@app.get("/health")
+@app.get("/health", tags=["Health"])
 async def health_check():
     """
-    Health check endpoint for ALB - no authentication required.
-    Returns 200 only if service is ready.
+    Health check endpoint for ECS cluster service — no authentication required.
+    Returns 200 only if the service is ready to serve traffic.
     """
+    logger.info("Health check called")
     try:
-        # Quick validation that dependencies are working
         from app.services.storage_service import CompanyStorage
-        storage = CompanyStorage()
-        # Try to verify storage can be read (non-destructive check)
+        CompanyStorage()
+        logger.info(
+            "Health check passed",
+            extra={"service": settings.SERVICE_NAME, "version": settings.SERVICE_VERSION},
+        )
         return {
             "status": "healthy",
-            "service": "company-service",
-            "version": "1.0.0"
+            "service": settings.SERVICE_NAME,
+            "version": settings.SERVICE_VERSION,
         }
     except Exception as e:
-        logger.error(f"Health check failed: {e}")
-        # Return 503 Service Unavailable if dependencies fail
-        from fastapi import Response
-        return Response(
+        logger.error(f"Health check failed: {e}", exc_info=True)
+        return JSONResponse(
             status_code=503,
             content={"status": "unhealthy", "error": str(e)},
-            media_type="application/json"
         )
 
 

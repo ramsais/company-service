@@ -133,18 +133,20 @@ class CompanyStorage:
             raise
 
     async def delete_company(self, company_id: str) -> bool:
-        logger.info(f"delete_company(company_id={company_id}) called")
+        """Soft-delete: sets is_active=False instead of removing the record."""
+        logger.info(f"delete_company(company_id={company_id}) called — soft delete")
         try:
             companies = await self._read_all()
-            initial_len = len(companies)
-            logger.debug(f"Found {initial_len} companies, filtering out company_id={company_id}")
-            companies = [c for c in companies if c["id"] != company_id]
-            if len(companies) < initial_len:
-                logger.debug(f"Company found and removed, new count={len(companies)}, writing to storage")
-                await self._write_all(companies)
-                logger.info(f"Successfully deleted company_id={company_id}, remaining companies={len(companies)}")
-                return True
-            logger.warning(f"Company not found for deletion: company_id={company_id}, count unchanged={initial_len}")
+            for i, c in enumerate(companies):
+                if c["id"] == company_id:
+                    logger.debug(f"Found company at index {i}, setting is_active=False")
+                    companies[i]["is_active"] = False
+                    from datetime import datetime, timezone
+                    companies[i]["updated_at"] = datetime.now(timezone.utc).isoformat()
+                    await self._write_all(companies)
+                    logger.info(f"Successfully soft-deleted company_id={company_id}")
+                    return True
+            logger.warning(f"Company not found for soft-delete: company_id={company_id}")
             return False
         except Exception as e:
             logger.error(f"Error in delete_company(company_id={company_id}): {e}", exc_info=True)
