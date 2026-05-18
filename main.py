@@ -1,52 +1,18 @@
+from app.logging_config import configure_logging, RequestLoggingMiddleware
+
+# Must be the very first call — before FastAPI app is created
+configure_logging(level="INFO")
+
 import logging
-import logging.config
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from app.exceptions import AppException, app_exception_handler
-from app.middleware import CorrelationIdMiddleware, CorrelationIdFilter
 from app.routers import company_router
 from app.services.config import settings
 
-# ---------------------------------------------------------------------------
-# Structured JSON logging
-# Every log record will include: timestamp, level, logger, correlation_id,
-# and the message — queryable in CloudWatch Logs Insights across all services.
-# ---------------------------------------------------------------------------
-LOGGING_CONFIG = {
-    "version": 1,
-    "disable_existing_loggers": False,
-    "filters": {
-        "correlation_id": {
-            "()": CorrelationIdFilter,
-        }
-    },
-    "formatters": {
-        "json": {
-            "format": (
-                '{"time":"%(asctime)s","level":"%(levelname)s",'
-                '"logger":"%(name)s","correlation_id":"%(correlation_id)s",'
-                '"message":"%(message)s"}'
-            ),
-            "datefmt": "%Y-%m-%dT%H:%M:%S",
-        }
-    },
-    "handlers": {
-        "console": {
-            "class": "logging.StreamHandler",
-            "formatter": "json",
-            "filters": ["correlation_id"],
-        }
-    },
-    "root": {
-        "level": "INFO",
-        "handlers": ["console"],
-    },
-}
-
-logging.config.dictConfig(LOGGING_CONFIG)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("company_service")
 
 # ---------------------------------------------------------------------------
 # FastAPI app
@@ -57,9 +23,9 @@ app = FastAPI(
     version=settings.SERVICE_VERSION,
 )
 
-# Correlation ID middleware must be added before any other middleware so the
-# ID is available to all subsequent handlers and log statements.
-app.add_middleware(CorrelationIdMiddleware)
+# RequestLoggingMiddleware must be added first so correlation_id is set
+# before any other middleware or handler runs.
+app.add_middleware(RequestLoggingMiddleware)
 
 app.add_exception_handler(AppException, app_exception_handler)
 

@@ -1,4 +1,3 @@
-import uuid
 import logging
 from datetime import datetime, timezone
 from app.schemas.company import Company, CompanyCreate, CompanyUpdate, CompanyInStorage
@@ -41,7 +40,9 @@ class CompanyService:
     async def create_company(self, company_in: CompanyCreate) -> Company:
         logger.info(f"create_company() called with name={company_in.name}")
         try:
-            company_id = str(uuid.uuid4())
+            existing = await self.storage.list_companies()
+            next_id = str(max((int(c.id) for c in existing if c.id.isdigit()), default=0) + 1)
+            company_id = next_id
             now = datetime.now(timezone.utc)
             logger.debug(f"Generated company_id={company_id}, now={now.isoformat()}")
 

@@ -1,7 +1,6 @@
 import json
 import os
 import logging
-import fcntl
 from datetime import datetime
 from anyio import to_thread
 from app.schemas.company import CompanyInStorage
@@ -25,11 +24,7 @@ class CompanyStorage:
             return []
         try:
             with open(self.file_path, "r") as f:
-                logger.debug(f"Acquiring shared lock on {self.file_path}")
-                # Shared lock for reading
-                fcntl.flock(f, fcntl.LOCK_SH)
                 data = json.load(f)
-                fcntl.flock(f, fcntl.LOCK_UN)
                 logger.info(f"Successfully read {len(data)} companies from {self.file_path}")
                 return data
         except (json.JSONDecodeError, ValueError) as e:
@@ -51,24 +46,14 @@ class CompanyStorage:
             raise TypeError(f"Type {type(obj)} not serializable")
 
         temp_file = f"{self.file_path}.tmp"
-        lock_file_path = f"{self.file_path}.lock"
-        
         try:
-            logger.debug(f"Acquiring exclusive lock on {lock_file_path}")
-            with open(lock_file_path, "w") as lf:
-                fcntl.flock(lf, fcntl.LOCK_EX)
-                logger.debug(f"Exclusive lock acquired, writing to temp file {temp_file}")
-                try:
-                    with open(temp_file, "w") as f:
-                        json.dump(companies, f, indent=2, default=datetime_serializer)
-                        f.flush()
-                        os.fsync(f.fileno())
-                    logger.debug(f"Temp file written, replacing {self.file_path} with {temp_file}")
-                    os.replace(temp_file, self.file_path)
-                    logger.info(f"Successfully wrote {len(companies)} companies to {self.file_path}")
-                finally:
-                    fcntl.flock(lf, fcntl.LOCK_UN)
-                    logger.debug(f"Exclusive lock released on {lock_file_path}")
+            with open(temp_file, "w") as f:
+                json.dump(companies, f, indent=2, default=datetime_serializer)
+                f.flush()
+                os.fsync(f.fileno())
+            logger.debug(f"Temp file written, replacing {self.file_path} with {temp_file}")
+            os.replace(temp_file, self.file_path)
+            logger.info(f"Successfully wrote {len(companies)} companies to {self.file_path}")
         except Exception as e:
             logger.error(f"Error writing to storage: {e}", exc_info=True)
             if os.path.exists(temp_file):
