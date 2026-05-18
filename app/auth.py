@@ -1,8 +1,10 @@
 import json
 import base64
 import logging
-from fastapi import Header, HTTPException
+from fastapi import Header, HTTPException, Request
 from typing import Optional
+
+from app.services.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -27,16 +29,24 @@ def _decode_jwt_payload(token: str) -> dict:
         raise HTTPException(status_code=401, detail="Invalid or malformed authorization token")
 
 
-def get_current_user_role(authorization: Optional[str] = Header(default=None)) -> str:
+def get_current_user_role(request: Request, authorization: Optional[str] = Header(default=None)) -> str:
     """
     Extract the user role from the JWT token passed in the Authorization header.
     API Gateway has already validated the Cognito token; we only decode the payload
     to read the 'cognito:groups' claim and determine the role.
 
+    If the x-internal-api-key header matches the configured key, skip Cognito auth
+    and return 'WRITE_USER' (trusted internal caller).
+
     Returns 'WRITE_USER' or 'READ_USER'.
     """
+    internal_key = request.headers.get("x-internal-api-key")
+    if internal_key and internal_key == settings.INTERNAL_API_KEY:
+        logger.info("Internal API key matched — skipping Cognito auth, granting WRITE_USER")
+        return "WRITE_USER"
+
     logger.info(f"get_current_user_role() called, authorization header present: {authorization is not None}")
-    
+
     if not authorization:
         logger.warning(f"Authorization header is missing")
         raise HTTPException(status_code=401, detail="Authorization header is missing")
