@@ -29,3 +29,14 @@ typing-inspection==0.4.2
 typing_extensions==4.15.0
 urllib3==2.7.0
 uvicorn==0.47.0
+
+# ---- OpenTelemetry + CloudWatch Application Signals ----
+opentelemetry-api==1.25.0
+opentelemetry-sdk==1.25.0
+opentelemetry-instrumentation-fastapi==0.46b0
+opentelemetry-instrumentation-httpx==0.46b0
+opentelemetry-exporter-otlp-proto-grpc==1.25.0
+opentelemetry-propagator-aws-xray==1.0.2
+opentelemetry-propagators-aws==1.0.2
+opentelemetry-propagator-b3==1.25.0
+grpcio==1.65.5
