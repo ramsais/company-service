@@ -11,7 +11,8 @@ import os
 
 from fastapi import FastAPI
 
-from app.exceptions import AppException, GlobalExceptionHandlers
+from app.exceptions.handlers import GlobalExceptionHandlers
+from app.exceptions.custom import AppException
 from app.routers import company_router
 
 # ---------------------------------------------------------------------------

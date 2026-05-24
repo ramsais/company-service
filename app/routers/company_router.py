@@ -3,7 +3,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.auth import get_current_user_role
-from app.exceptions import ResourceNotFoundException  # re-exported from app.exceptions.custom
+from app.exceptions.custom import ResourceNotFoundException  # re-exported from app.exceptions.custom
 from app.schemas.company import Company, CompanyCreate, CompanyUpdate
 from app.services.company_service import CompanyService
 from app.services.storage_service import CompanyStorage
