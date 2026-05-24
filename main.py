@@ -1,27 +1,76 @@
 # ---------------------------------------------------------------------------
-# 1. OTel MUST be configured before FastAPI is imported / instantiated
-#    so that auto-instrumentation hooks are in place before any routes
-#    or middleware are registered.
-# ---------------------------------------------------------------------------
-from app.telemetry import configure_telemetry, instrument_app
-
-configure_telemetry(service_name="company-service", service_version="1.0.1")
-
-# ---------------------------------------------------------------------------
-# 2. Logging setup — after OTel so JsonFormatter can read OTel span context
+# Logging setup
 # ---------------------------------------------------------------------------
 from app.logging_config import configure_logging, RequestLoggingMiddleware
+from app.services.config import settings
 
-configure_logging(level="INFO")
+configure_logging(level=settings.LOG_LEVEL)
 
 import logging
+import os
 
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI
 
-from app.exceptions import AppException, app_exception_handler
+from app.exceptions import AppException, GlobalExceptionHandlers
 from app.routers import company_router
-from app.services.config import settings
+
+# ---------------------------------------------------------------------------
+# OpenTelemetry setup (AWS X-Ray compatible)
+# ---------------------------------------------------------------------------
+from opentelemetry import trace, propagate
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from opentelemetry.sdk.extension.aws.trace import AwsXRayIdGenerator
+from opentelemetry.propagators.aws import AwsXRayPropagator
+from opentelemetry.propagators.composite import CompositePropagator
+from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.instrumentation.requests import RequestsInstrumentor
+
+try:
+    from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor  # optional
+except Exception:  # pragma: no cover - instrumentation may be optional at runtime
+    HTTPXClientInstrumentor = None
+
+
+def init_telemetry():
+    """
+    Initialize OpenTelemetry tracing with AWS X-Ray ID generator and OTLP exporter.
+    The exporter endpoint can be provided via settings or OTEL_EXPORTER_OTLP_ENDPOINT env var.
+    """
+    service_name = settings.OTEL_SERVICE_NAME or settings.SERVICE_NAME
+    resource = Resource.create(
+        {
+            "service.name": service_name,
+            "service.version": settings.SERVICE_VERSION,
+            "deployment.environment": settings.ENV,
+        }
+    )
+
+    provider = TracerProvider(resource=resource, id_generator=AwsXRayIdGenerator())
+
+    endpoint = (
+            settings.OTEL_EXPORTER_OTLP_ENDPOINT
+            or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+            or "http://127.0.0.1:4318"
+    )
+    span_exporter = OTLPSpanExporter(endpoint=endpoint)
+    provider.add_span_processor(BatchSpanProcessor(span_exporter))
+
+    trace.set_tracer_provider(provider)
+
+    # Use a composite propagator so incoming context from either W3C traceparent or AWS X-Ray is respected
+    propagate.set_global_textmap(
+        CompositePropagator([TraceContextTextMapPropagator(), AwsXRayPropagator()])
+    )
+
+    return provider
+
+
+# Initialize telemetry once at import time
+_tracer_provider = init_telemetry()
 
 logger = logging.getLogger("company_service")
 
@@ -38,25 +87,21 @@ app = FastAPI(
 # before any other middleware or handler runs.
 app.add_middleware(RequestLoggingMiddleware)
 
-app.add_exception_handler(AppException, app_exception_handler)
+# Centralized exception handling via exceptions.handlers.GlobalExceptionHandlers
+app.add_exception_handler(AppException, GlobalExceptionHandlers.app_exception_handler)
+app.add_exception_handler(Exception, GlobalExceptionHandlers.unhandled_exception_handler)
 
-# ---------------------------------------------------------------------------
-# 3. Wire OTel FastAPI instrumentation AFTER app + middleware are registered
-#    excluded_urls="health" prevents health-poll spans from flooding traces
-# ---------------------------------------------------------------------------
-instrument_app(app, excluded_urls="health")
-
-
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    logger.error(f"Unhandled error: {exc}", exc_info=True)
-    return JSONResponse(
-        status_code=500,
-        content={"message": "An unexpected internal server error occurred."},
-    )
-
-
+# Routers
 app.include_router(company_router.router)
+
+# Instrument FastAPI and outbound HTTP clients
+FastAPIInstrumentor.instrument_app(app, tracer_provider=trace.get_tracer_provider())
+RequestsInstrumentor().instrument()
+if HTTPXClientInstrumentor:
+    try:
+        HTTPXClientInstrumentor().instrument()
+    except Exception:
+        pass
 
 
 @app.get("/health", tags=["Health"])
@@ -68,6 +113,7 @@ async def health_check():
     logger.info("Health check called")
     try:
         from app.services.storage_service import CompanyStorage
+
         CompanyStorage()
         logger.info(
             "Health check passed",
@@ -80,6 +126,8 @@ async def health_check():
         }
     except Exception as e:
         logger.error(f"Health check failed: {e}", exc_info=True)
+        from fastapi.responses import JSONResponse
+
         return JSONResponse(
             status_code=503,
             content={"status": "unhealthy", "error": str(e)},
@@ -88,4 +136,11 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=8000,
+        log_config=None,  # Disable Uvicorn's default logging config to use our custom JSON logging
+        access_log=True,
+    )

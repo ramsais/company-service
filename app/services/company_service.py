@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime, timezone
+
 from app.schemas.company import Company, CompanyCreate, CompanyUpdate, CompanyInStorage
 from app.services.storage_service import CompanyStorage
 

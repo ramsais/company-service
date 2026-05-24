@@ -1,11 +1,12 @@
 import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 
+from app.auth import get_current_user_role
+from app.exceptions import ResourceNotFoundException  # re-exported from app.exceptions.custom
 from app.schemas.company import Company, CompanyCreate, CompanyUpdate
 from app.services.company_service import CompanyService
 from app.services.storage_service import CompanyStorage
-from app.exceptions import ResourceNotFoundException
-from app.auth import get_current_user_role
 
 logger = logging.getLogger(__name__)
 
@@ -19,8 +20,8 @@ def get_company_service() -> CompanyService:
 
 @router.get("/", response_model=list[Company])
 async def list_companies(
-    service: CompanyService = Depends(get_company_service),
-    role: str = Depends(get_current_user_role),
+        service: CompanyService = Depends(get_company_service),
+        role: str = Depends(get_current_user_role),
 ):
     logger.info(f"GET /companies called, role={role}")
     try:
@@ -34,9 +35,9 @@ async def list_companies(
 
 @router.get("/{company_id}", response_model=Company)
 async def get_company(
-    company_id: str,
-    service: CompanyService = Depends(get_company_service),
-    role: str = Depends(get_current_user_role),
+        company_id: str,
+        service: CompanyService = Depends(get_company_service),
+        role: str = Depends(get_current_user_role),
 ):
     logger.info(f"GET /companies/{company_id} called, role={role}")
     try:
@@ -53,9 +54,9 @@ async def get_company(
 
 @router.post("/", response_model=Company, status_code=201)
 async def create_company(
-    company_in: CompanyCreate,
-    service: CompanyService = Depends(get_company_service),
-    role: str = Depends(get_current_user_role),
+        company_in: CompanyCreate,
+        service: CompanyService = Depends(get_company_service),
+        role: str = Depends(get_current_user_role),
 ):
     logger.info(f"POST /companies called, name={company_in.name}, role={role}")
     try:
@@ -69,12 +70,13 @@ async def create_company(
 
 @router.put("/{company_id}", response_model=Company)
 async def update_company(
-    company_id: str,
-    company_in: CompanyUpdate,
-    service: CompanyService = Depends(get_company_service),
-    role: str = Depends(get_current_user_role),
+        company_id: str,
+        company_in: CompanyUpdate,
+        service: CompanyService = Depends(get_company_service),
+        role: str = Depends(get_current_user_role),
 ):
-    logger.info(f"PUT /companies/{company_id} called, fields={list(company_in.model_dump(exclude_unset=True).keys())}, role={role}")
+    logger.info(
+        f"PUT /companies/{company_id} called, fields={list(company_in.model_dump(exclude_unset=True).keys())}, role={role}")
     try:
         company = await service.update_company(company_id, company_in)
         if not company:
@@ -89,15 +91,15 @@ async def update_company(
 
 @router.delete("/{company_id}", status_code=204)
 async def delete_company(
-    company_id: str,
-    service: CompanyService = Depends(get_company_service),
-    role: str = Depends(get_current_user_role),
+        company_id: str,
+        service: CompanyService = Depends(get_company_service),
+        role: str = Depends(get_current_user_role),
 ):
     logger.info(f"DELETE /companies/{company_id} called, role={role}")
     try:
         if role != "WRITE_USER":
             logger.warning(f"Unauthorized delete attempt: company_id={company_id}, role={role}")
-            raise HTTPException(status_code=403, detail="WRITE_USER role required to delete a company")
+            raise HTTPException(status_code=403, detail=f"{role} role is not allowed to delete a company")
 
         deleted = await service.delete_company(company_id)
         if not deleted:

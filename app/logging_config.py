@@ -8,6 +8,11 @@ from contextvars import ContextVar
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
+try:
+    from opentelemetry import trace as otel_trace  # optional if OTel not installed yet
+except Exception:  # pragma: no cover
+    otel_trace = None
+
 # Carries correlation_id across async tasks within a single request
 correlation_id_var: ContextVar[str] = ContextVar("correlation_id", default="-")
 
@@ -15,35 +20,13 @@ correlation_id_var: ContextVar[str] = ContextVar("correlation_id", default="-")
 CORRELATION_ID_HEADER = "x-request-id"
 _AMZN_TRACE_HEADER = "x-amzn-trace-id"
 _CORRELATION_HEADER = "x-correlation-id"
-
-
-def _get_otel_trace_context() -> dict:
-    """
-    Extract the active OTel trace_id and span_id from the current span context.
-    Returns empty strings when no active span exists (e.g. during startup).
-    These values are injected into every JSON log line so CloudWatch Logs
-    Insights can correlate log entries with X-Ray / Application Signals traces.
-    """
-    try:
-        from opentelemetry import trace as otel_trace
-        span = otel_trace.get_current_span()
-        ctx = span.get_span_context()
-        if ctx and ctx.is_valid:
-            return {
-                "trace_id": format(ctx.trace_id, "032x"),
-                "span_id": format(ctx.span_id, "016x"),
-            }
-    except Exception:
-        pass
-    return {"trace_id": "", "span_id": ""}
+_TRACEPARENT_HEADER = "traceparent"
 
 
 class JsonFormatter(logging.Formatter):
     """
     Emits log records as single-line JSON.
     Compatible with CloudWatch Logs Insights — every field is queryable.
-    Includes OTel trace_id and span_id so logs are linkable to
-    CloudWatch Application Signals / X-Ray traces.
     Extra fields passed via `extra=` kwargs are merged into the JSON object.
     """
 
@@ -56,18 +39,30 @@ class JsonFormatter(logging.Formatter):
         "taskName",
     })
 
+    def _otel_context(self) -> dict:
+        if not otel_trace:
+            return {}
+        try:
+            span = otel_trace.get_current_span()
+            ctx = span.get_span_context()
+            if not ctx or not ctx.is_valid:
+                return {}
+            trace_id = format(ctx.trace_id, "032x")
+            span_id = format(ctx.span_id, "016x")
+            return {"trace_id": trace_id, "span_id": span_id}
+        except Exception:
+            return {}
+
     def format(self, record: logging.LogRecord) -> str:
-        otel_ctx = _get_otel_trace_context()
         log_obj = {
             "timestamp": self.formatTime(record, "%Y-%m-%dT%H:%M:%S"),
             "level": record.levelname,
             "logger": record.name,
             "correlation_id": correlation_id_var.get("-"),
-            # OTel trace context — links this log line to Application Signals trace
-            "trace_id": otel_ctx["trace_id"],
-            "span_id": otel_ctx["span_id"],
             "message": record.getMessage(),
         }
+        # If OTel is active, include trace/span ids for correlation in CloudWatch
+        log_obj.update(self._otel_context())
         if record.exc_info:
             log_obj["exception"] = self.formatException(record.exc_info)
         # Merge any extra fields passed via extra={} kwarg
@@ -84,13 +79,40 @@ def configure_logging(level: str = "INFO") -> None:
     """
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(JsonFormatter())
+    handler.setLevel(getattr(logging, level.upper(), logging.INFO))
+
     root = logging.getLogger()
     root.handlers.clear()
     root.addHandler(handler)
     root.setLevel(getattr(logging, level.upper(), logging.INFO))
-    # Suppress noisy third-party access logs
-    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
-    logging.getLogger("uvicorn.error").setLevel(logging.WARNING)
+
+    # Configure uvicorn loggers to use our handler
+    uvicorn_access = logging.getLogger("uvicorn.access")
+    uvicorn_access.handlers.clear()
+    uvicorn_access.addHandler(handler)
+    uvicorn_access.setLevel(logging.INFO)
+    uvicorn_access.propagate = False
+
+    uvicorn_error = logging.getLogger("uvicorn.error")
+    uvicorn_error.handlers.clear()
+    uvicorn_error.addHandler(handler)
+    uvicorn_error.setLevel(logging.INFO)
+    uvicorn_error.propagate = False
+
+    # Configure uvicorn main logger
+    uvicorn_logger = logging.getLogger("uvicorn")
+    uvicorn_logger.handlers.clear()
+    uvicorn_logger.addHandler(handler)
+    uvicorn_logger.setLevel(logging.INFO)
+    uvicorn_logger.propagate = False
+
+    # Configure application loggers explicitly
+    for logger_name in ["request", "company_service"]:
+        app_logger = logging.getLogger(logger_name)
+        app_logger.handlers.clear()
+        app_logger.addHandler(handler)
+        app_logger.setLevel(logging.INFO)
+        app_logger.propagate = True
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
@@ -110,10 +132,11 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
     """
 
     async def dispatch(self, request: Request, call_next) -> Response:
-        # Resolve correlation ID — prefer API Gateway injected header
+        # Resolve correlation ID — prefer explicit header, then W3C, then AWS X-Ray
         correlation_id = (
                 request.headers.get(_CORRELATION_HEADER)
-                or request.headers.get(_AMZN_TRACE_HEADER)  # API Gateway always sets this
+                or request.headers.get(_TRACEPARENT_HEADER)
+                or request.headers.get(_AMZN_TRACE_HEADER)  # API Gateway typically sets this
                 or request.headers.get(CORRELATION_ID_HEADER)
                 or str(uuid.uuid4())
         )
@@ -121,6 +144,10 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         start = time.perf_counter()
 
         logger = logging.getLogger("request")
+
+        # Force flush to stdout immediately
+        print(f"[REQUEST START] {request.method} {request.url.path}", flush=True)
+
         logger.info(
             "request started",
             extra={
@@ -142,6 +169,12 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
                 "status_code": response.status_code,
                 "duration_ms": duration_ms,
             },
+        )
+
+        # Force flush to stdout immediately
+        print(
+            f"[REQUEST END] {request.method} {request.url.path} - {response.status_code} ({duration_ms}ms)",
+            flush=True,
         )
 
         # Echo correlation ID back to caller so they can log/trace it

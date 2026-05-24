@@ -1,8 +1,10 @@
 import json
-import os
 import logging
+import os
 from datetime import datetime
+
 from anyio import to_thread
+
 from app.schemas.company import CompanyInStorage
 from app.services.config import settings
 
@@ -136,4 +138,3 @@ class CompanyStorage:
         except Exception as e:
             logger.error(f"Error in delete_company(company_id={company_id}): {e}", exc_info=True)
             raise
-

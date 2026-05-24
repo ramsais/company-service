@@ -1,8 +1,9 @@
-import json
 import base64
+import json
 import logging
-from fastapi import Header, HTTPException, Request
 from typing import Optional
+
+from fastapi import Header, HTTPException, Request
 
 from app.services.config import settings
 
@@ -35,15 +36,21 @@ def get_current_user_role(request: Request, authorization: Optional[str] = Heade
     API Gateway has already validated the Cognito token; we only decode the payload
     to read the 'cognito:groups' claim and determine the role.
 
+    If LOCAL_DEVELOPMENT is enabled, skip authentication and return 'WRITE_USER'.
     If the x-internal-api-key header matches the configured key, skip Cognito auth
     and return 'WRITE_USER' (trusted internal caller).
 
     Returns 'WRITE_USER' or 'READ_USER'.
     """
+    # Skip authentication in local development mode
+    if settings.LOCAL_DEVELOPMENT:
+        logger.info("LOCAL_DEVELOPMENT mode enabled — skipping authentication, granting WRITE_USER")
+        return "WRITE_USER"
+
     internal_key = request.headers.get("x-internal-api-key")
     if internal_key and internal_key == settings.INTERNAL_API_KEY:
         logger.info("Internal API key matched — skipping Cognito auth, granting WRITE_USER")
-        return "WRITE_USER"
+        return "READ_USER"
 
     logger.info(f"get_current_user_role() called, authorization header present: {authorization is not None}")
 
@@ -55,14 +62,14 @@ def get_current_user_role(request: Request, authorization: Optional[str] = Heade
     if not token:
         logger.warning(f"Bearer token is missing or empty after removing prefix")
         raise HTTPException(status_code=401, detail="Bearer token is missing")
-    
+
     logger.debug(f"Bearer token extracted, length={len(token)}")
 
     claims = _decode_jwt_payload(token)
 
     groups: list = claims.get("cognito:groups") or []
     logger.info(f"User groups from JWT: {groups}")
-    
+
     if "WRITE_USER" in groups:
         logger.info(f"User role determined: WRITE_USER")
         return "WRITE_USER"
@@ -71,7 +78,8 @@ def get_current_user_role(request: Request, authorization: Optional[str] = Heade
         return "READ_USER"
 
     logger.error(f"User does not belong to a recognized role group, available groups: {groups}")
-    raise HTTPException(status_code=403, detail="User does not belong to a recognized role group (WRITE_USER or READ_USER)")
+    raise HTTPException(status_code=403,
+                        detail="User does not belong to a recognized role group (WRITE_USER or READ_USER)")
 
 
 def require_write_user(role: str = Header(default=None)) -> str:
