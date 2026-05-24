@@ -16,7 +16,7 @@ except Exception:  # pragma: no cover
 # Carries correlation_id across async tasks within a single request
 correlation_id_var: ContextVar[str] = ContextVar("correlation_id", default="-")
 
-# Header names — API Gateway injects X-Amzn-Trace-Id; clients may send X-Correlation-ID
+# Header names â€” API Gateway injects X-Amzn-Trace-Id; clients may send X-Correlation-ID
 CORRELATION_ID_HEADER = "x-request-id"
 _AMZN_TRACE_HEADER = "x-amzn-trace-id"
 _CORRELATION_HEADER = "x-correlation-id"
@@ -26,11 +26,11 @@ _TRACEPARENT_HEADER = "traceparent"
 class JsonFormatter(logging.Formatter):
     """
     Emits log records as single-line JSON.
-    Compatible with CloudWatch Logs Insights — every field is queryable.
+    Compatible with CloudWatch Logs Insights â€” every field is queryable.
     Extra fields passed via `extra=` kwargs are merged into the JSON object.
     """
 
-    # Fields that are standard LogRecord attributes — never copy these as extras
+    # Fields that are standard LogRecord attributes â€” never copy these as extras
     _SKIP_FIELDS = frozenset({
         "args", "asctime", "created", "exc_info", "exc_text", "filename",
         "funcName", "id", "levelname", "levelno", "lineno", "module",
@@ -38,6 +38,16 @@ class JsonFormatter(logging.Formatter):
         "processName", "relativeCreated", "stack_info", "thread", "threadName",
         "taskName",
     })
+
+    @staticmethod
+    def _xray_trace_id_from_hex(trace_id_hex: str) -> str:
+        """
+        Convert a 32-hex OTel trace ID into AWS X-Ray format: 1-8hex-24hex.
+        Returns empty string if the input is invalid.
+        """
+        if not trace_id_hex or len(trace_id_hex) < 32:
+            return ""
+        return f"1-{trace_id_hex[0:8]}-{trace_id_hex[8:32]}"
 
     def _otel_context(self) -> dict:
         if not otel_trace:
@@ -47,9 +57,23 @@ class JsonFormatter(logging.Formatter):
             ctx = span.get_span_context()
             if not ctx or not ctx.is_valid:
                 return {}
-            trace_id = format(ctx.trace_id, "032x")
-            span_id = format(ctx.span_id, "016x")
-            return {"trace_id": trace_id, "span_id": span_id}
+            trace_id_hex = format(ctx.trace_id, "032x")
+            span_id_hex = format(ctx.span_id, "016x")
+            xray_id = self._xray_trace_id_from_hex(trace_id_hex)
+
+            # Base OTel fields
+            payload: dict[str, str] = {
+                "trace_id": trace_id_hex,
+                "span_id": span_id_hex,
+            }
+
+            # Add AWS X-Ray compatible keys for ServiceLens log correlation
+            if xray_id:
+                payload["traceId"] = xray_id
+                payload["xray_trace_id"] = xray_id
+                payload["spanId"] = span_id_hex
+
+            return payload
         except Exception:
             return {}
 
@@ -75,7 +99,7 @@ class JsonFormatter(logging.Formatter):
 def configure_logging(level: str = "INFO") -> None:
     """
     Call ONCE at application startup (top of main.py) before anything else.
-    Sets up JSON logging on the root logger — all loggers in the app inherit it.
+    Sets up JSON logging on the root logger â€” all loggers in the app inherit it.
     """
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(JsonFormatter())
@@ -117,11 +141,11 @@ def configure_logging(level: str = "INFO") -> None:
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
     """
-    Correlation-ID middleware — runs on every request.
+    Correlation-ID middleware â€” runs on every request.
 
     Priority order for correlation ID resolution:
       1. x-correlation-id  (explicit client / upstream header)
-      2. x-amzn-trace-id   (injected by API Gateway on every request — always present)
+      2. x-amzn-trace-id   (injected by API Gateway on every request â€” always present)
       3. x-request-id      (legacy / ALB-injected)
       4. generated uuid4   (fallback for direct calls bypassing API Gateway)
 
@@ -132,7 +156,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
     """
 
     async def dispatch(self, request: Request, call_next) -> Response:
-        # Resolve correlation ID — prefer explicit header, then W3C, then AWS X-Ray
+        # Resolve correlation ID â€” prefer explicit header, then W3C, then AWS X-Ray
         correlation_id = (
                 request.headers.get(_CORRELATION_HEADER)
                 or request.headers.get(_TRACEPARENT_HEADER)
