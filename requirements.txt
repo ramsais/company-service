@@ -29,11 +29,11 @@ uvicorn==0.47.0
 # OpenTelemetry for tracing and context propagation (AWS X-Ray compatible)
 opentelemetry-api
 opentelemetry-sdk
+opentelemetry-exporter-otlp-proto-http
+
 opentelemetry-instrumentation
 opentelemetry-instrumentation-fastapi
 opentelemetry-instrumentation-requests
 opentelemetry-instrumentation-httpx
-opentelemetry-exporter-otlp-proto-http
-opentelemetry-sdk-extension-aws
+
 opentelemetry-propagator-aws-xray
-opentelemetry-exporter-otlp-proto-grpc
